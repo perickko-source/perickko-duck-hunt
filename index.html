@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Duck Hunt - Perro Detrás del Césped</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; display: flex; justify-content: center; align-items: center; }
+        canvas {
+            display: block;
+            width: 480px; height: 800px;
+        }
+    </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+// --- IMÁGENES ---
+const lajefaImg = new Image(); lajefaImg.src = 'lajefa.png';
+const eljefeImg = new Image(); eljefeImg.src = 'eljefe.png';
+const perroImg = new Image(); perroImg.src = 'perro.png';
+const treeImg = new Image(); treeImg.src = 'arbol.png';
+
+// --- AUDIO ---
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+function initAudio() { if (!audioCtx) audioCtx = new AudioCtx(); if (audioCtx.state === 'suspended') audioCtx.resume(); }
+function playShoot() {
+    if (!audioCtx) return;
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.15, audioCtx.sampleRate);
+    const d = buf.getChannelData(0); for(let i=0; i<d.length; i++) d[i] = Math.random()*2-1;
+    const n = audioCtx.createBufferSource(); n.buffer = buf;
+    const g = audioCtx.createGain(); g.gain.setValueAtTime(0.8, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+    n.connect(g); g.connect(audioCtx.destination); n.start();
+}
+function playHit() {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(400, audioCtx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.2);
+    g.gain.setValueAtTime(0.5, audioCtx.currentTime); g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+    o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.25);
+}
+function playDogLaugh() {
+    if (!audioCtx) return; let t = audioCtx.currentTime;
+    for(let i=0; i<4; i++) {
+        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(250, t + i*0.15);
+        o.frequency.linearRampToValueAtTime(150, t + i*0.15 + 0.1);
+        g.gain.setValueAtTime(0.4, t + i*0.15); g.gain.linearRampToValueAtTime(0, t + i*0.15 + 0.1);
+        o.connect(g); g.connect(audioCtx.destination); o.start(t + i*0.15); o.stop(t + i*0.15 + 0.15);
+    }
+}
+function playRoundStart() {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(600, audioCtx.currentTime);
+    o.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.2);
+    g.gain.setValueAtTime(0.2, audioCtx.currentTime); g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+    o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.3);
+}
+function playBonus() {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(800, audioCtx.currentTime);
+    o.frequency.linearRampToValueAtTime(1200, audioCtx.currentTime + 0.3);
+    g.gain.setValueAtTime(0.3, audioCtx.currentTime); g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+    o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.3);
+}
+
+// --- CANVAS ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const GW = 480, GH = 800;
+canvas.width = GW; canvas.height = GH;
+
+function fitCanvas() {
+    const scaleX = window.innerWidth / GW;
+    const scaleY = window.innerHeight / GH;
+    const scale = Math.min(scaleX, scaleY);
+    canvas.style.width = `${GW * scale}px`;
+    canvas.style.height = `${GH * scale}px`;
+}
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
+
+// --- ESTADO ---
+let score = 0, level = 1, shots = 3, roundActive = false;
+const grassH = GH * 0.2, grassY = GH - grassH;
+let ducks = [];
+let dog = { x: GW/2 - 70, y: GH, w: 140, h: 140, state: 'hidden', t: 0 };
+
+// 🌳 ÁRBOL - 177x180px
+const tree = { 
+    x: 10,                    
+    w: 177,                   
+    h: 180                    
+};
+
+const clouds = [
+    { x: 50, y: 80, w: 70, s: 0.3 }, { x: 200, y: 150, w: 90, s: 0.4 }, { x: 350, y: 100, w: 80, s: 0.35 }
+];
+
+// --- DIFICULTAD ---
+function getDuckCount() { return level <= 2 ? 1 : level <= 5 ? 2 : 3; }
+function getSpeedMult() { return level <= 2 ? 1 : level <= 5 ? 1.25 : 1.5; }
+function shouldSpawnElJefe() { return level >= 3 && Math.random() < 0.25; }
+
+function createDuck(idx, total) {
+    const type = shouldSpawnElJefe() ? 'eljefe' : 'lajefa';
+    let angle = (Math.random() * Math.PI) + Math.PI;
+    let baseSpeed = (2.5 + level * 0.8) * getSpeedMult();
+    return {
+        type, x: tree.x + tree.w/2 - 60, y: grassY - 100 - (idx * 50),
+        w: 120, h: 120,
+        vx: Math.cos(angle) * baseSpeed, vy: Math.sin(angle) * baseSpeed * 0.7,
+        dir: 1, changeTimer: 90 + Math.random() * 120, active: true
+    };
+}
+
+function startRound() {
+    roundActive = true; playRoundStart();
+    ducks = []; const count = getDuckCount();
+    for (let i = 0; i < count; i++) { ducks.push(createDuck(i, count)); }
+    shots = 3;
+}
+
+function triggerDog() { dog.state = 'rising'; playDogLaugh(); }
+function applyPenalty() { level = Math.max(1, level - 1); roundActive = false; setTimeout(startRound, 800); }
+
+// --- UPDATE ---
+function update() {
+    clouds.forEach(c => { c.x += c.s; if (c.x - c.w > GW) { c.x = -c.w; c.y = Math.random() * (GH * 0.4); } });
+    
+    if (dog.state === 'rising') { 
+        dog.y -= 4; 
+        if (dog.y <= grassY - 100) { dog.state = 'laughing'; dog.t = 120; } 
+    } else if (dog.state === 'laughing') { 
+        dog.t--; 
+        if (dog.t <= 0) dog.state = 'falling'; 
+    } else if (dog.state === 'falling') { 
+        dog.y += 4; 
+        if (dog.y >= GH) { dog.state = 'hidden'; applyPenalty(); } 
+    }
+    
+    if (roundActive) {
+        let currentSpeed = (2.5 + level * 0.8) * getSpeedMult();
+        ducks.forEach(d => {
+            if (!d.active) return;
+            d.x += d.vx; d.y += d.vy;
+            const marginX = d.w * 0.2, limitTop = 40, limitBottom = grassY - d.h * 0.5;
+            if (d.x < -marginX) { d.x = -marginX; d.vx = Math.abs(d.vx); }
+            else if (d.x > GW - d.w + marginX) { d.x = GW - d.w + marginX; d.vx = -Math.abs(d.vx); }
+            if (d.y < limitTop) { d.y = limitTop; d.vy = Math.abs(d.vy); }
+            else if (d.y > limitBottom) { d.y = limitBottom; d.vy = -Math.abs(d.vy); }
+            d.changeTimer--;
+            if (d.changeTimer <= 0) {
+                let currentAngle = Math.atan2(d.vy, d.vx);
+                let newAngle = currentAngle + (Math.random() - 0.5) * Math.PI * 0.5;
+                d.vx = Math.cos(newAngle) * currentSpeed;
+                d.vy = Math.sin(newAngle) * currentSpeed * 0.7;
+                d.changeTimer = 90 + Math.random() * 120;
+            }
+            d.dir = d.vx > 0 ? 1 : -1;
+        });
+        const alive = ducks.filter(d => d.active);
+        if (alive.length === 0 && dog.state === 'hidden') {
+            if (shots > 0) { score += shots * 150; playBonus(); }
+            level++; roundActive = false; setTimeout(startRound, 1200);
+        }
+    }
+}
+
+// --- DIBUJO ---
+function drawCloud(x, y, w) {
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath(); ctx.arc(x, y, w*0.3, 0, Math.PI*2); ctx.arc(x+w*0.35, y-w*0.1, w*0.35, 0, Math.PI*2);
+    ctx.arc(x+w*0.7, y, w*0.3, 0, Math.PI*2); ctx.arc(x+w*0.35, y+w*0.15, w*0.3, 0, Math.PI*2); ctx.fill();
+}
+
+function drawTree() {
+    ctx.save();
+    const ty = grassY - tree.h + 20; 
+    const tx = tree.x;
+    
+    if (treeImg && treeImg.complete && treeImg.naturalWidth > 10) {
+        ctx.drawImage(treeImg, tx, ty, tree.w, tree.h);
+    } else {
+        ctx.fillStyle = "#8B4513"; 
+        ctx.fillRect(tx + 70, ty + 100, 40, 80);
+        ctx.fillStyle = "#228B22"; 
+        ctx.beginPath(); 
+        ctx.arc(tx + 88, ty + 80, 60, 0, Math.PI*2); 
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+function drawDuck(d) {
+    if (!d.active) return;
+    ctx.save();
+    const dx = d.x;
+    const dy = d.y;
+    ctx.translate(dx + d.w/2, dy + d.h/2); 
+    ctx.scale(d.dir, 1);
+    
+    const img = d.type === 'eljefe' ? eljefeImg : lajefaImg;
+    if (img && img.complete && img.naturalWidth > 10) {
+        const r = img.width / img.height; let dw = d.w, dh = dw / r;
+        if (dh > d.h) { dh = d.h; dw = dh * r; }
+        ctx.drawImage(img, -dw/2, -dh/2, dw, dh);
+    } else { ctx.fillStyle = d.type === 'eljefe' ? "#FF3333" : "#FF00FF"; ctx.fillRect(-d.w/2, -d.h/2, d.w, d.h); }
+    ctx.restore();
+}
+
+function drawDog() {
+    if (dog.state === 'hidden') return;
+    ctx.save();
+    const dx = dog.x;
+    const dy = dog.y;
+    const drawW = 140, drawH = 140;
+
+    if (perroImg && perroImg.complete && perroImg.naturalWidth > 10) {
+        const r = perroImg.width / perroImg.height;
+        let fW = drawW, fH = fW / r;
+        if (fH > drawH) { fH = drawH; fW = fH * r; }
+        ctx.drawImage(perroImg, dx + (drawW - fW)/2, dy + (drawH - fH)/2, fW, fH);
+    } else {
+        ctx.fillStyle = "#8B4513"; ctx.fillRect(dx, dy, drawW, drawH);
+    }
+    ctx.restore();
+}
+
+function draw() {
+    ctx.clearRect(0, 0, GW, GH);
+    
+    // 1. Cielo y Nubes
+    ctx.fillStyle = "#5C94FC"; ctx.fillRect(0, 0, GW, GH);
+    clouds.forEach(c => drawCloud(c.x, c.y, c.w)); 
+    
+    // 2. 🐶 Perro (Se dibuja PRIMERO para que quede DETRÁS del césped)
+    drawDog();
+
+    // 3. 🌿 Césped (Cubre la parte inferior del perro)
+    ctx.fillStyle = "#80D010"; ctx.fillRect(0, grassY, GW, grassH);
+    ctx.fillStyle = "#00E800"; for(let i=0; i<GW; i+=12) ctx.fillRect(i, grassY, 3, 12);
+    
+    // 4. 🌳 Árbol y Patos (Se dibujan DESPUÉS para quedar ENCIMA del césped)
+    drawTree(); 
+    ducks.forEach(d => drawDuck(d)); 
+    
+    // 5. HUD
+    const hudH = 60, hudY = GH - hudH;
+    ctx.fillStyle = "#603000"; ctx.fillRect(0, hudY, GW, hudH);
+    ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 18px Courier New";
+    ctx.fillText(`LVL:${level}`, 10, hudY+25); ctx.fillText(`SCORE:${score}`, 10, hudY+45);
+    ctx.fillStyle = "#00FF00"; ctx.fillText(`SHOTS:${shots}`, GW-120, hudY+35);
+}
+
+// --- INPUT ---
+function handleShoot(e) {
+    e.preventDefault(); initAudio();
+    if (dog.state !== 'hidden' || !roundActive) return;
+    if (shots <= 0) return;
+    playShoot(); shots--;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = GW / rect.width, scaleY = GH / rect.height;
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    const gx = (cx - rect.left) * scaleX, gy = (cy - rect.top) * scaleY;
+    let hit = false;
+    ducks.forEach(d => {
+        if (d.active && !hit && gx >= d.x-15 && gx <= d.x+d.w+15 && gy >= d.y-15 && gy <= d.y+d.h+15) {
+            hit = true; d.active = false;
+            score += d.type === 'eljefe' ? 400 * level : 100 * level;
+            playHit();
+        }
+    });
+    if (shots === 0 && ducks.some(d => d.active)) { setTimeout(triggerDog, 600); }
+}
+canvas.addEventListener('mousedown', handleShoot); 
+canvas.addEventListener('touchstart', handleShoot, {passive:false});
+
+// --- INIT ---
+startRound();
+(function loop() { update(); draw(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
