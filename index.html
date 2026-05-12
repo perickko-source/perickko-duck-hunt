@@ -3,29 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Duck Hunt - Perro Detrás del Césped</title>
+    <title>Duck Hunt - Classic NES Final</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
         html, body { width: 100%; height: 100%; overflow: hidden; background: #000; display: flex; justify-content: center; align-items: center; }
-        canvas {
-            display: block;
-            width: 480px; height: 800px;
-        }
+        canvas { display: block; width: 480px; height: 800px; }
     </style>
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
 <script>
 // --- IMÁGENES ---
-const lajefaImg = new Image(); lajefaImg.src = 'lajefa.png';
-const eljefeImg = new Image(); eljefeImg.src = 'eljefe.png';
+const lajefaImg = new Image(); lajefaImg.src = 'lajefa-aleteo.png';
+const eljefeImg = new Image(); eljefeImg.src = 'eljefe-aleteo.png';
 const perroImg = new Image(); perroImg.src = 'perro.png';
 const treeImg = new Image(); treeImg.src = 'arbol.png';
 
 // --- AUDIO ---
+const dogLaughAudio = new Audio('perro-risa.ogg');
+dogLaughAudio.preload = 'auto';
+
+// ✅ NUEVO: Audio para cuando el perro recoge al pato
+const dogRetrieveAudio = new Audio('perro-recoge.ogg');
+dogRetrieveAudio.preload = 'auto';
+
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let audioCtx;
-function initAudio() { if (!audioCtx) audioCtx = new AudioCtx(); if (audioCtx.state === 'suspended') audioCtx.resume(); }
+
+function initAudio() { 
+    if (!audioCtx) audioCtx = new AudioCtx(); 
+    if (audioCtx.state === 'suspended') audioCtx.resume(); 
+}
+
 function playShoot() {
     if (!audioCtx) return;
     const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.15, audioCtx.sampleRate);
@@ -35,6 +44,7 @@ function playShoot() {
     g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
     n.connect(g); g.connect(audioCtx.destination); n.start();
 }
+
 function playHit() {
     if (!audioCtx) return;
     const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
@@ -43,16 +53,51 @@ function playHit() {
     g.gain.setValueAtTime(0.5, audioCtx.currentTime); g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
     o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.25);
 }
+
+// ✅ RISAS (cuando fallas)
 function playDogLaugh() {
-    if (!audioCtx) return; let t = audioCtx.currentTime;
-    for(let i=0; i<4; i++) {
-        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
-        o.type = 'triangle'; o.frequency.setValueAtTime(250, t + i*0.15);
-        o.frequency.linearRampToValueAtTime(150, t + i*0.15 + 0.1);
-        g.gain.setValueAtTime(0.4, t + i*0.15); g.gain.linearRampToValueAtTime(0, t + i*0.15 + 0.1);
-        o.connect(g); g.connect(audioCtx.destination); o.start(t + i*0.15); o.stop(t + i*0.15 + 0.15);
-    }
+    dogLaughAudio.currentTime = 0;
+    dogLaughAudio.play().catch(() => {});
 }
+
+// ✅ RECOGIDA (cuando aciertas)
+function playDogRetrieve() {
+    dogRetrieveAudio.currentTime = 0;
+    dogRetrieveAudio.play().catch(() => {});
+}
+
+function playFlap() {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(150, audioCtx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.08);
+    g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.08);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.1);
+}
+
+function playFanfare() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const notes = [261.63, 329.63, 392.00, 523.25];
+    notes.forEach((freq, i) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'square';
+        o.frequency.value = freq;
+        const start = now + i * 0.15;
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(0.3, start + 0.02);
+        g.gain.setValueAtTime(0.3, start + 0.12);
+        g.gain.linearRampToValueAtTime(0, start + 0.25);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(start); o.stop(start + 0.25);
+    });
+}
+
 function playRoundStart() {
     if (!audioCtx) return;
     const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
@@ -61,6 +106,7 @@ function playRoundStart() {
     g.gain.setValueAtTime(0.2, audioCtx.currentTime); g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
     o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.3);
 }
+
 function playBonus() {
     if (!audioCtx) return;
     const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
@@ -68,6 +114,17 @@ function playBonus() {
     o.frequency.linearRampToValueAtTime(1200, audioCtx.currentTime + 0.3);
     g.gain.setValueAtTime(0.3, audioCtx.currentTime); g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
     o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.3);
+}
+
+function playSelectSound() {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(440, audioCtx.currentTime);
+    g.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.1);
 }
 
 // --- CANVAS ---
@@ -86,90 +143,284 @@ function fitCanvas() {
 fitCanvas();
 window.addEventListener('resize', fitCanvas);
 
-// --- ESTADO ---
-let score = 0, level = 1, shots = 3, roundActive = false;
-const grassH = GH * 0.2, grassY = GH - grassH;
-let ducks = [];
-let dog = { x: GW/2 - 70, y: GH, w: 140, h: 140, state: 'hidden', t: 0 };
+// --- ESTADO DEL JUEGO ---
+let gameState = 'MENU'; // MENU, FLYING, HIT_ANIM, MISS_ANIM, ROUND_END, GAME_OVER
+let menuOption = 0; // 0 = 1 Player, 1 = 2 Players
 
-// 🌳 ÁRBOL - 177x180px
-const tree = { 
-    x: 10,                    
-    w: 177,                   
-    h: 180                    
+// --- JUGADORES ---
+let numPlayers = 1;
+let currentPlayer = 0; // 0 = Player 1, 1 = Player 2
+let players = [
+    { score: 0, lives: 3, round: 1 },
+    { score: 0, lives: 3, round: 1 }
+];
+
+// --- GAMEPLAY ---
+let ducksProcessed = 0;
+let ducksHit = 0;
+let shots = 3;
+let particles = [];
+
+// ✅ PERRO CON ANIMACIÓN COMPLETA
+let dog = {
+    x: GW/2,
+    y: GH,           
+    targetY: GH,     
+    state: 'HIDDEN', 
+    action: null,    
+    w: 140, h: 140,
+    timer: 0         
 };
 
+let currentDuck = null;
+let duckTimer = 0;
+
+const grassH = GH * 0.2, grassY = GH - grassH;
+const tree = { x: 10, w: 177, h: 180 };
 const clouds = [
     { x: 50, y: 80, w: 70, s: 0.3 }, { x: 200, y: 150, w: 90, s: 0.4 }, { x: 350, y: 100, w: 80, s: 0.35 }
 ];
 
-// --- DIFICULTAD ---
-function getDuckCount() { return level <= 2 ? 1 : level <= 5 ? 2 : 3; }
-function getSpeedMult() { return level <= 2 ? 1 : level <= 5 ? 1.25 : 1.5; }
-function shouldSpawnElJefe() { return level >= 3 && Math.random() < 0.25; }
+// ============================================
+// ✅ CLASE PARTÍCULA
+// ============================================
+class Particle {
+    constructor(x, y) {
+        this.x = x + (Math.random() - 0.5) * 20;
+        this.y = y + (Math.random() - 0.5) * 20;
+        this.vx = (Math.random() - 0.5) * 10;
+        this.vy = (Math.random() - 0.5) * 10;
+        this.life = 1.0;
+        this.decay = 0.02 + Math.random() * 0.02;
+        this.size = 3 + Math.random() * 5;
+        const colors = ['#FFFFFF', '#FFE4B5', '#8B4513', '#FF6B6B'];
+        this.color = colors[Math.floor(Math.random() * colors.length)];
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.3;
+        this.life -= this.decay;
+    }
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        ctx.restore();
+    }
+}
 
-function createDuck(idx, total) {
-    const type = shouldSpawnElJefe() ? 'eljefe' : 'lajefa';
-    let angle = (Math.random() * Math.PI) + Math.PI;
-    let baseSpeed = (2.5 + level * 0.8) * getSpeedMult();
-    return {
-        type, x: tree.x + tree.w/2 - 60, y: grassY - 100 - (idx * 50),
-        w: 120, h: 120,
-        vx: Math.cos(angle) * baseSpeed, vy: Math.sin(angle) * baseSpeed * 0.7,
-        dir: 1, changeTimer: 90 + Math.random() * 120, active: true
+function getPlayer() { return players[currentPlayer]; }
+function getSpeedMult() { return Math.min(1 + (getPlayer().round - 1) * 0.25, 2.0); }
+
+function spawnDuck() {
+    const type = Math.random() < 0.5 ? 'lajefa' : 'eljefe';
+    const baseSpeed = (2.5 + getPlayer().round * 0.5) * getSpeedMult();
+    let x, y, vx, vy;
+    
+    const edge = Math.floor(Math.random() * 3);
+    switch(edge) {
+        case 0:
+            x = Math.random() * (GW - 120) + 60; y = -120;
+            vx = (Math.random() - 0.5) * baseSpeed * 1.2; vy = baseSpeed;
+            break;
+        case 1:
+            x = -120; y = Math.random() * (grassY * 0.6) + 50;
+            vx = baseSpeed; vy = (Math.random() - 0.5) * baseSpeed * 1.2;
+            break;
+        case 2:
+            x = GW + 120; y = Math.random() * (grassY * 0.6) + 50;
+            vx = -baseSpeed; vy = (Math.random() - 0.5) * baseSpeed * 1.2;
+            break;
+    }
+
+    currentDuck = {
+        type, x, y, w: 120, h: 120,
+        vx, vy,
+        dir: vx > 0 ? 1 : -1,
+        changeTimer: 40 + Math.random() * 60,
+        frame: 0, frameTimer: 0,
+        active: true,
+        alpha: 0, fadeIn: 0.06
     };
-}
-
-function startRound() {
-    roundActive = true; playRoundStart();
-    ducks = []; const count = getDuckCount();
-    for (let i = 0; i < count; i++) { ducks.push(createDuck(i, count)); }
     shots = 3;
+    duckTimer = 0;
 }
 
-function triggerDog() { dog.state = 'rising'; playDogLaugh(); }
-function applyPenalty() { level = Math.max(1, level - 1); roundActive = false; setTimeout(startRound, 800); }
+// ✅ INICIAR SUBIDA DEL PERRO + EXPLOSIÓN + SONIDO RECOGIDA
+function triggerHit() {
+    currentDuck.active = false;
+    
+    let points = 500;
+    if (currentDuck.y < grassY * 0.4) points = 1500;
+    else if (currentDuck.y < grassY * 0.7) points = 1000;
+    getPlayer().score += points;
+    
+    // ✅ SPAWN DE PARTÍCULAS
+    const numParticles = 30 + Math.floor(Math.random() * 10);
+    for (let i = 0; i < numParticles; i++) {
+        particles.push(new Particle(currentDuck.x + currentDuck.w/2, currentDuck.y + currentDuck.h/2));
+    }
+
+    dog.state = 'RISING';
+    dog.action = 'RETRIEVE';
+    dog.x = Math.max(currentDuck.x, 200); 
+    dog.targetY = grassY - 120;
+    dog.timer = 0;
+    
+    playHit();
+    playDogRetrieve(); // ✅ NUEVO: Suena perro-recoge.ogg
+}
+
+function triggerMiss() {
+    if (currentDuck && currentDuck.active) currentDuck.active = false;
+    getPlayer().lives--;
+    
+    dog.state = 'RISING';
+    dog.action = 'LAUGH';
+    dog.x = GW/2;
+    dog.targetY = grassY - 100;
+    dog.timer = 0;
+    
+    playDogLaugh(); // ✅ Mantiene perro-risa.ogg
+}
+
+function finishDogAnimation() {
+    dog.state = 'HIDDEN';
+    dog.y = GH;
+    currentDuck = null;
+    
+    if (duckTimer > 360) {
+        ducksProcessed++;
+        if (getPlayer().lives <= 0) gameState = 'GAME_OVER';
+        else if (ducksProcessed >= 10) gameState = 'ROUND_END';
+        else gameState = 'FLYING';
+    } else {
+        ducksHit++;
+        ducksProcessed++;
+        if (ducksProcessed >= 10) gameState = 'ROUND_END';
+        else gameState = 'FLYING';
+    }
+}
+
+function nextRound() {
+    const player = getPlayer();
+    if (ducksHit === 10) {
+        player.score += 10000;
+        playBonus();
+    }
+    ducksHit = 0;
+    ducksProcessed = 0;
+    player.round++;
+    
+    if (numPlayers === 2) {
+        currentPlayer = 1 - currentPlayer;
+    }
+    
+    playRoundStart();
+    currentDuck = null;
+    gameState = 'FLYING';
+}
+
+function startGame() {
+    initAudio();
+    playFanfare();
+    
+    players = [
+        { score: 0, lives: 3, round: 1 },
+        { score: 0, lives: 3, round: 1 }
+    ];
+    currentPlayer = 0;
+    ducksHit = 0;
+    ducksProcessed = 0;
+    currentDuck = null;
+    particles = [];
+    
+    dog.state = 'HIDDEN';
+    dog.y = GH;
+    
+    gameState = 'FLYING';
+}
 
 // --- UPDATE ---
 function update() {
     clouds.forEach(c => { c.x += c.s; if (c.x - c.w > GW) { c.x = -c.w; c.y = Math.random() * (GH * 0.4); } });
     
-    if (dog.state === 'rising') { 
-        dog.y -= 4; 
-        if (dog.y <= grassY - 100) { dog.state = 'laughing'; dog.t = 120; } 
-    } else if (dog.state === 'laughing') { 
-        dog.t--; 
-        if (dog.t <= 0) dog.state = 'falling'; 
-    } else if (dog.state === 'falling') { 
-        dog.y += 4; 
-        if (dog.y >= GH) { dog.state = 'hidden'; applyPenalty(); } 
+    if (gameState === 'MENU') return;
+    
+    if (gameState === 'FLYING' && !currentDuck) {
+        spawnDuck();
     }
     
-    if (roundActive) {
-        let currentSpeed = (2.5 + level * 0.8) * getSpeedMult();
-        ducks.forEach(d => {
-            if (!d.active) return;
-            d.x += d.vx; d.y += d.vy;
-            const marginX = d.w * 0.2, limitTop = 40, limitBottom = grassY - d.h * 0.5;
-            if (d.x < -marginX) { d.x = -marginX; d.vx = Math.abs(d.vx); }
-            else if (d.x > GW - d.w + marginX) { d.x = GW - d.w + marginX; d.vx = -Math.abs(d.vx); }
-            if (d.y < limitTop) { d.y = limitTop; d.vy = Math.abs(d.vy); }
-            else if (d.y > limitBottom) { d.y = limitBottom; d.vy = -Math.abs(d.vy); }
-            d.changeTimer--;
-            if (d.changeTimer <= 0) {
-                let currentAngle = Math.atan2(d.vy, d.vx);
-                let newAngle = currentAngle + (Math.random() - 0.5) * Math.PI * 0.5;
-                d.vx = Math.cos(newAngle) * currentSpeed;
-                d.vy = Math.sin(newAngle) * currentSpeed * 0.7;
-                d.changeTimer = 90 + Math.random() * 120;
-            }
-            d.dir = d.vx > 0 ? 1 : -1;
-        });
-        const alive = ducks.filter(d => d.active);
-        if (alive.length === 0 && dog.state === 'hidden') {
-            if (shots > 0) { score += shots * 150; playBonus(); }
-            level++; roundActive = false; setTimeout(startRound, 1200);
+    particles = particles.filter(p => p.life > 0);
+    particles.forEach(p => p.update());
+
+    if (dog.state === 'RISING') {
+        dog.y -= 4; 
+        if (dog.y <= dog.targetY) {
+            dog.y = dog.targetY;
+            dog.state = dog.action; 
+            dog.timer = 0;
         }
+    } else if (dog.state === 'LAUGH' || dog.state === 'RETRIEVE') {
+        dog.timer++;
+        if (dog.timer > 90) { 
+            dog.state = 'FALLING';
+        }
+    } else if (dog.state === 'FALLING') {
+        dog.y += 4; 
+        if (dog.y >= GH) {
+            finishDogAnimation();
+        }
+    }
+
+    if (gameState === 'FLYING' && currentDuck && currentDuck.active) {
+        if (currentDuck.alpha < 1) currentDuck.alpha += currentDuck.fadeIn;
+        
+        currentDuck.frameTimer++;
+        if (currentDuck.frameTimer > 8) { 
+            currentDuck.frame = 1 - currentDuck.frame; 
+            currentDuck.frameTimer = 0;
+            playFlap();
+        }
+        
+        currentDuck.x += currentDuck.vx;
+        currentDuck.y += currentDuck.vy;
+        
+        const marginX = currentDuck.w * 0.2;
+        const limitTop = 40;
+        const limitBottom = grassY - currentDuck.h * 0.5;
+        
+        if (currentDuck.x < -marginX) { currentDuck.x = -marginX; currentDuck.vx = Math.abs(currentDuck.vx); }
+        else if (currentDuck.x > GW - currentDuck.w + marginX) { currentDuck.x = GW - currentDuck.w + marginX; currentDuck.vx = -Math.abs(currentDuck.vx); }
+        if (currentDuck.y < limitTop) { currentDuck.y = limitTop; currentDuck.vy = Math.abs(currentDuck.vy); }
+        else if (currentDuck.y > limitBottom) { currentDuck.y = limitBottom; currentDuck.vy = -Math.abs(currentDuck.vy); }
+        
+        currentDuck.changeTimer--;
+        if (currentDuck.changeTimer <= 0) {
+            let ang = Math.atan2(currentDuck.vy, currentDuck.vx) + (Math.random() - 0.5) * Math.PI * 0.6;
+            let sp = Math.hypot(currentDuck.vx, currentDuck.vy);
+            currentDuck.vx = Math.cos(ang) * sp;
+            currentDuck.vy = Math.sin(ang) * sp;
+            currentDuck.changeTimer = 40 + Math.random() * 60;
+        }
+        currentDuck.dir = currentDuck.vx > 0 ? 1 : -1;
+        
+        duckTimer++;
+        if (duckTimer > 360) triggerMiss();
+    }
+    
+    if (gameState === 'ROUND_END') {
+        if (!window.roundTimer) window.roundTimer = 180;
+        window.roundTimer--;
+        if (window.roundTimer <= 0) {
+            window.roundTimer = 0;
+            if (getPlayer().lives <= 0) gameState = 'GAME_OVER';
+            else nextRound();
+        }
+    } else {
+        window.roundTimer = 180;
     }
 }
 
@@ -182,109 +433,219 @@ function drawCloud(x, y, w) {
 
 function drawTree() {
     ctx.save();
-    const ty = grassY - tree.h + 20; 
-    const tx = tree.x;
-    
-    if (treeImg && treeImg.complete && treeImg.naturalWidth > 10) {
-        ctx.drawImage(treeImg, tx, ty, tree.w, tree.h);
-    } else {
-        ctx.fillStyle = "#8B4513"; 
-        ctx.fillRect(tx + 70, ty + 100, 40, 80);
-        ctx.fillStyle = "#228B22"; 
-        ctx.beginPath(); 
-        ctx.arc(tx + 88, ty + 80, 60, 0, Math.PI*2); 
-        ctx.fill();
-    }
+    const ty = grassY - tree.h + 20; const tx = tree.x;
+    if (treeImg && treeImg.complete && treeImg.naturalWidth > 10) ctx.drawImage(treeImg, tx, ty, tree.w, tree.h);
+    else { ctx.fillStyle = "#8B4513"; ctx.fillRect(tx+70, ty+100, 40, 80); ctx.fillStyle="#228B22"; ctx.beginPath(); ctx.arc(tx+88, ty+80, 60, 0, Math.PI*2); ctx.fill(); }
     ctx.restore();
 }
 
 function drawDuck(d) {
-    if (!d.active) return;
+    if (!d || !d.active) return;
     ctx.save();
-    const dx = d.x;
-    const dy = d.y;
-    ctx.translate(dx + d.w/2, dy + d.h/2); 
+    ctx.globalAlpha = d.alpha || 1;
+    ctx.translate(d.x + d.w/2, d.y + d.h/2);
     ctx.scale(d.dir, 1);
-    
     const img = d.type === 'eljefe' ? eljefeImg : lajefaImg;
     if (img && img.complete && img.naturalWidth > 10) {
-        const r = img.width / img.height; let dw = d.w, dh = dw / r;
-        if (dh > d.h) { dh = d.h; dw = dh * r; }
-        ctx.drawImage(img, -dw/2, -dh/2, dw, dh);
+        const fw = img.width/2, fh = img.height;
+        ctx.drawImage(img, d.frame * fw, 0, fw, fh, -d.w/2, -d.h/2, d.w, d.h);
     } else { ctx.fillStyle = d.type === 'eljefe' ? "#FF3333" : "#FF00FF"; ctx.fillRect(-d.w/2, -d.h/2, d.w, d.h); }
     ctx.restore();
 }
 
 function drawDog() {
-    if (dog.state === 'hidden') return;
+    if (dog.state === 'HIDDEN') return;
     ctx.save();
-    const dx = dog.x;
-    const dy = dog.y;
-    const drawW = 140, drawH = 140;
-
+    let dx = dog.x - 70;
+    if (dx < 190) dx = 190; 
+    
     if (perroImg && perroImg.complete && perroImg.naturalWidth > 10) {
-        const r = perroImg.width / perroImg.height;
-        let fW = drawW, fH = fW / r;
-        if (fH > drawH) { fH = drawH; fW = fH * r; }
-        ctx.drawImage(perroImg, dx + (drawW - fW)/2, dy + (drawH - fH)/2, fW, fH);
+        ctx.drawImage(perroImg, dx, dog.y, 140, 140);
     } else {
-        ctx.fillStyle = "#8B4513"; ctx.fillRect(dx, dy, drawW, drawH);
+        ctx.fillStyle = "#8B4513"; ctx.fillRect(dx, dog.y, 140, 140);
     }
     ctx.restore();
 }
 
-function draw() {
-    ctx.clearRect(0, 0, GW, GH);
+function drawMenu() {
+    ctx.fillStyle = "#5C94FC";
+    ctx.fillRect(0, 0, GW, GH);
     
-    // 1. Cielo y Nubes
-    ctx.fillStyle = "#5C94FC"; ctx.fillRect(0, 0, GW, GH);
-    clouds.forEach(c => drawCloud(c.x, c.y, c.w)); 
+    ctx.fillStyle = "#FF0000";
+    ctx.font = "bold 48px Courier New";
+    ctx.textAlign = "center";
+    ctx.fillText("DUCK HUNT", GW/2, 150);
     
-    // 2. 🐶 Perro (Se dibuja PRIMERO para que quede DETRÁS del césped)
-    drawDog();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 24px Courier New";
+    ctx.fillText("CLASSIC EDITION", GW/2, 190);
+    
+    ctx.fillStyle = "#FFFF00";
+    ctx.font = "bold 28px Courier New";
+    ctx.fillText("SELECT GAME MODE", GW/2, 300);
+    
+    ctx.fillStyle = menuOption === 0 ? "#FF0000" : "#FFFFFF";
+    ctx.font = "bold 24px Courier New";
+    ctx.fillText("1 PLAYER", GW/2, 380);
+    
+    ctx.fillStyle = menuOption === 1 ? "#FF0000" : "#FFFFFF";
+    ctx.fillText("2 PLAYERS", GW/2, 430);
+    
+    ctx.fillStyle = "#00FF00";
+    ctx.font = "18px Courier New";
+    ctx.fillText("↑ ↓ to select", GW/2, 520);
+    ctx.fillText("PRESS FIRE to start", GW/2, 560);
+    
+    ctx.textAlign = "left";
+}
 
-    // 3. 🌿 Césped (Cubre la parte inferior del perro)
+function draw() {
+    if (gameState === 'MENU') {
+        drawMenu();
+        return;
+    }
+    
+    ctx.clearRect(0, 0, GW, GH);
+    ctx.fillStyle = "#5C94FC"; ctx.fillRect(0, 0, GW, GH);
+    clouds.forEach(c => drawCloud(c.x, c.y, c.w));
+    
+    drawDog();
+    particles.forEach(p => p.draw(ctx));
+
     ctx.fillStyle = "#80D010"; ctx.fillRect(0, grassY, GW, grassH);
     ctx.fillStyle = "#00E800"; for(let i=0; i<GW; i+=12) ctx.fillRect(i, grassY, 3, 12);
     
-    // 4. 🌳 Árbol y Patos (Se dibujan DESPUÉS para quedar ENCIMA del césped)
-    drawTree(); 
-    ducks.forEach(d => drawDuck(d)); 
+    drawTree();
+    if (currentDuck) drawDuck(currentDuck);
     
-    // 5. HUD
     const hudH = 60, hudY = GH - hudH;
     ctx.fillStyle = "#603000"; ctx.fillRect(0, hudY, GW, hudH);
-    ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 18px Courier New";
-    ctx.fillText(`LVL:${level}`, 10, hudY+25); ctx.fillText(`SCORE:${score}`, 10, hudY+45);
-    ctx.fillStyle = "#00FF00"; ctx.fillText(`SHOTS:${shots}`, GW-120, hudY+35);
+    
+    if (numPlayers === 2) {
+        ctx.font = "bold 16px Courier New";
+        ctx.fillStyle = currentPlayer === 0 ? "#FFFF00" : "#FFFFFF";
+        ctx.fillText(`P1: ${players[0].score}`, 10, hudY+20);
+        ctx.fillStyle = currentPlayer === 1 ? "#FFFF00" : "#FFFFFF";
+        ctx.fillText(`P2: ${players[1].score}`, 10, hudY+45);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "bold 16px Courier New";
+        ctx.fillText(`LIVES: ${getPlayer().lives}`, 140, hudY+25);
+        ctx.fillText(`ROUND: ${getPlayer().round}`, 140, hudY+45);
+    } else {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "bold 18px Courier New";
+        ctx.fillText(`LIVES: ${getPlayer().lives}`, 10, hudY+25);
+        ctx.fillText(`ROUND: ${getPlayer().round}`, 10, hudY+45);
+        ctx.fillText(`SCORE: ${getPlayer().score}`, 140, hudY+35);
+    }
+
+    ctx.fillStyle = "#00FF00";
+    ctx.font = "bold 18px Courier New";
+    ctx.fillText(`SHOTS: ${shots}`, GW-120, hudY+35);
+    
+    if (numPlayers === 2) {
+        ctx.fillStyle = "#FF0000";
+        ctx.font = "bold 20px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText(`PLAYER ${currentPlayer + 1}'S TURN`, GW/2, 40);
+        ctx.textAlign = "left";
+    }
+    
+    if (gameState === 'ROUND_END') {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        const rw = 340, rh = 90;
+        const rx = (GW - rw) / 2, ry = GH/2 - rh/2;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, 16);
+        else ctx.rect(rx, ry, rw, rh);
+        ctx.fill();
+        
+        ctx.fillStyle = "#FFD700"; ctx.font = "bold 26px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText(`ROUND ${getPlayer().round} COMPLETE`, GW/2, GH/2 + 5);
+        ctx.fillStyle = "#FFFFFF"; ctx.font = "20px Courier New";
+        if (numPlayers === 2) {
+            ctx.fillText(`PLAYER ${1 - currentPlayer + 1}'S TURN`, GW/2, GH/2 + 35);
+        } else {
+            ctx.fillText(`NEXT: ROUND ${getPlayer().round + 1}`, GW/2, GH/2 + 35);
+        }
+        ctx.textAlign = "left";
+    } else if (gameState === 'GAME_OVER') {
+        ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0, 0, GW, GH);
+        ctx.fillStyle = "#FF0000"; ctx.font = "bold 40px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER", GW/2, GH/2 - 40);
+        
+        if (numPlayers === 2) {
+            ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 24px Courier New";
+            ctx.fillText(`PLAYER 1: ${players[0].score}`, GW/2, GH/2 + 10);
+            ctx.fillText(`PLAYER 2: ${players[1].score}`, GW/2, GH/2 + 40);
+            
+            const winner = players[0].score > players[1].score ? "PLAYER 1 WINS!" : 
+                          players[1].score > players[0].score ? "PLAYER 2 WINS!" : "DRAW!";
+            ctx.fillStyle = "#FFD700"; ctx.font = "bold 28px Courier New";
+            ctx.fillText(winner, GW/2, GH/2 + 90);
+        } else {
+            ctx.fillStyle = "#FFF"; ctx.font = "20px Courier New";
+            ctx.fillText(`FINAL SCORE: ${players[0].score}`, GW/2, GH/2 + 20);
+        }
+        ctx.textAlign = "left";
+    }
 }
 
 // --- INPUT ---
+function handleInput(e) {
+    e.preventDefault();
+    
+    if (gameState === 'MENU') {
+        if (e.key === 'ArrowUp') {
+            menuOption = 0;
+            playSelectSound();
+        } else if (e.key === 'ArrowDown') {
+            menuOption = 1;
+            playSelectSound();
+        } else if (e.key === ' ' || e.key === 'Enter') {
+            numPlayers = menuOption + 1;
+            startGame();
+        }
+    }
+}
+
 function handleShoot(e) {
-    e.preventDefault(); initAudio();
-    if (dog.state !== 'hidden' || !roundActive) return;
+    e.preventDefault();
+    
+    if (gameState === 'MENU') {
+        numPlayers = menuOption + 1;
+        startGame();
+        return;
+    }
+    
+    initAudio();
+    if (gameState !== 'FLYING' || !currentDuck || !currentDuck.active) return;
     if (shots <= 0) return;
+    
     playShoot(); shots--;
+    
     const rect = canvas.getBoundingClientRect();
     const scaleX = GW / rect.width, scaleY = GH / rect.height;
     const cx = e.touches ? e.touches[0].clientX : e.clientX;
     const cy = e.touches ? e.touches[0].clientY : e.clientY;
     const gx = (cx - rect.left) * scaleX, gy = (cy - rect.top) * scaleY;
-    let hit = false;
-    ducks.forEach(d => {
-        if (d.active && !hit && gx >= d.x-15 && gx <= d.x+d.w+15 && gy >= d.y-15 && gy <= d.y+d.h+15) {
-            hit = true; d.active = false;
-            score += d.type === 'eljefe' ? 400 * level : 100 * level;
-            playHit();
-        }
-    });
-    if (shots === 0 && ducks.some(d => d.active)) { setTimeout(triggerDog, 600); }
+    
+    if (gx >= currentDuck.x-15 && gx <= currentDuck.x+currentDuck.w+15 && 
+        gy >= currentDuck.y-15 && gy <= currentDuck.y+currentDuck.h+15) {
+        triggerHit();
+    } else if (shots === 0) {
+        triggerMiss();
+    }
 }
+
 canvas.addEventListener('mousedown', handleShoot); 
 canvas.addEventListener('touchstart', handleShoot, {passive:false});
+window.addEventListener('keydown', handleInput);
 
 // --- INIT ---
-startRound();
+gameState = 'MENU';
 (function loop() { update(); draw(); requestAnimationFrame(loop); })();
 </script>
 </body>
