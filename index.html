@@ -14,6 +14,7 @@
 <canvas id="gameCanvas"></canvas>
 <script>
 // --- IMÁGENES ---
+const portadaImg = new Image(); portadaImg.src = 'portada.png';
 const lajefaImg = new Image(); lajefaImg.src = 'lajefa-aleteo.png';
 const eljefeImg = new Image(); eljefeImg.src = 'eljefe-aleteo.png';
 const perroImg = new Image(); perroImg.src = 'perro.png';
@@ -126,9 +127,11 @@ fitCanvas();
 window.addEventListener('resize', fitCanvas);
 
 // --- ESTADO DEL JUEGO ---
-let gameState = 'MENU';
+let gameState = 'LOADING';
+let loadingTimer = 0;
+const LOAD_DURATION = 360; // 6 segundos
 let menuOption = 0;
-let switchTimer = 0; // ⏱️ Timer para pantalla de cambio de jugador
+let switchTimer = 0;
 
 // --- JUGADORES ---
 let numPlayers = 1;
@@ -277,11 +280,10 @@ function nextRound() {
     ducksProcessed = 0;
     player.round++;
     
-    // 🔄 LÓGICA DE CAMBIO DE JUGADOR
     if (numPlayers === 2) {
         currentPlayer = 1 - currentPlayer;
         gameState = 'PLAYER_SWITCH';
-        switchTimer = 120; // 2 segundos a 60fps
+        switchTimer = 120;
         return;
     }
 
@@ -311,9 +313,16 @@ function startGame() {
 function update() {
     clouds.forEach(c => { c.x += c.s; if (c.x - c.w > GW) { c.x = -c.w; c.y = Math.random() * (GH * 0.4); } });
     
+    if (gameState === 'LOADING') {
+        loadingTimer++;
+        if (loadingTimer >= LOAD_DURATION) {
+            gameState = 'MENU';
+        }
+        return;
+    }
+    
     if (gameState === 'MENU') return;
     
-    // ⏱️ MANEJO DE PANTALLA DE CAMBIO
     if (gameState === 'PLAYER_SWITCH') {
         switchTimer--;
         if (switchTimer <= 0) {
@@ -412,7 +421,7 @@ function drawDuck(d) {
     ctx.restore();
 }
 
-// ✅ PERRO - TRATAMIENTO INDEPENDIENTE
+// ✅ PERRO
 function drawDog() {
     if (dog.state === 'HIDDEN') return;
     let dx = dog.x - 70;
@@ -425,7 +434,7 @@ function drawDog() {
     }
 }
 
-// ✅ MENÚ REDISEÑADO
+// ✅ MENÚ
 function drawMenu() {
     ctx.fillStyle = "#5C94FC";
     ctx.fillRect(0, 0, GW, GH);
@@ -463,10 +472,73 @@ function drawMenu() {
     ctx.textAlign = "left";
 }
 
+// ✅ PANTALLA DE CARGA MEJORADA
+function drawLoading() {
+    // 1. Imagen de fondo
+    if (portadaImg.complete) {
+        ctx.drawImage(portadaImg, 0, 0, GW, GH);
+    } else {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, GW, GH);
+    }
+
+    const progress = loadingTimer / LOAD_DURATION;
+    
+    // 2. Configuración de la barra (Más estrecha y fina)
+    const barW = 220;
+    const barH = 6;
+    const barX = (GW - barW) / 2;
+    const barY = GH - 100; 
+    const radius = 3;
+
+    // Helper para rectángulos redondeados
+    function pathRoundRect(x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+    }
+
+    // 3. Fondo de la barra
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    pathRoundRect(barX, barY, barW, barH, radius);
+    ctx.fill();
+
+    // 4. Progreso con gradiente llamativo
+    if (progress > 0) {
+        const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+        gradient.addColorStop(0, "#00FF00");
+        gradient.addColorStop(1, "#FFFF00");
+        ctx.fillStyle = gradient;
+        
+        const progressW = Math.max(radius * 2, barW * progress);
+        pathRoundRect(barX, barY, progressW, barH, radius);
+        ctx.fill();
+    }
+
+    // 5. Texto debajo
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 14px Courier New";
+    ctx.textAlign = "center";
+    ctx.fillText("CARGANDO...", GW/2, barY + 25);
+    ctx.textAlign = "left";
+}
+
 function draw() {
+    if (gameState === 'LOADING') {
+        drawLoading();
+        return;
+    }
+
     if (gameState === 'MENU') { drawMenu(); return; }
     
-    // 🖥️ PANTALLA DE CAMBIO DE JUGADOR
     if (gameState === 'PLAYER_SWITCH') {
         ctx.fillStyle = "#000000";
         ctx.fillRect(0, 0, GW, GH);
@@ -523,7 +595,6 @@ function draw() {
         ctx.fillText(`PLAYER ${currentPlayer + 1}'S TURN`, GW/2, 40); ctx.textAlign = "left";
     }
     
-    // ✅ CARTEL DE FIN DE RONDA LIMPIO
     if (gameState === 'ROUND_END') {
         ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
         const rw = 340, rh = 90;
@@ -536,7 +607,6 @@ function draw() {
         ctx.fillStyle = "#FFD700"; ctx.font = "bold 26px Courier New"; ctx.textAlign = "center";
         ctx.fillText(`ROUND ${getPlayer().round} COMPLETE`, GW/2, GH/2 + 5);
         
-        // ✅ Solo muestra "NEXT ROUND" en modo 1 jugador. En 2 jugadores, la transición negra se encarga.
         if (numPlayers === 1) {
             ctx.fillStyle = "#FFFFFF"; ctx.font = "20px Courier New";
             ctx.fillText(`NEXT: ROUND ${getPlayer().round + 1}`, GW/2, GH/2 + 35);
@@ -562,10 +632,12 @@ function draw() {
     }
 }
 
-// --- INPUT (MENÚ CLICABLE + DISPARO) ---
+// --- INPUT ---
 function handleShoot(e) {
     e.preventDefault();
     
+    if (gameState === 'LOADING') return;
+
     if (gameState === 'MENU') {
         const rect = canvas.getBoundingClientRect();
         const scaleX = GW / rect.width;
@@ -615,7 +687,7 @@ canvas.addEventListener('mousedown', handleShoot);
 canvas.addEventListener('touchstart', handleShoot, {passive:false});
 
 // --- INIT ---
-gameState = 'MENU';
+gameState = 'LOADING';
 (function loop() { update(); draw(); requestAnimationFrame(loop); })();
 </script>
 </body>
