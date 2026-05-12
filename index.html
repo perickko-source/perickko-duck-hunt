@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Duck Hunt - Classic NES Final</title>
+    <title>La sala de makinas - Bird Hunt Edition</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
         html, body { width: 100%; height: 100%; overflow: hidden; background: #000; display: flex; justify-content: center; align-items: center; }
@@ -17,13 +17,12 @@
 const lajefaImg = new Image(); lajefaImg.src = 'lajefa-aleteo.png';
 const eljefeImg = new Image(); eljefeImg.src = 'eljefe-aleteo.png';
 const perroImg = new Image(); perroImg.src = 'perro.png';
+const perroRecogeImg = new Image(); perroRecogeImg.src = 'perro-recoge.png';
 const treeImg = new Image(); treeImg.src = 'arbol.png';
 
 // --- AUDIO ---
 const dogLaughAudio = new Audio('perro-risa.ogg');
 dogLaughAudio.preload = 'auto';
-
-// ✅ NUEVO: Audio para cuando el perro recoge al pato
 const dogRetrieveAudio = new Audio('perro-recoge.ogg');
 dogRetrieveAudio.preload = 'auto';
 
@@ -54,22 +53,21 @@ function playHit() {
     o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.25);
 }
 
-// ✅ RISAS (cuando fallas)
 function playDogLaugh() {
     dogLaughAudio.currentTime = 0;
     dogLaughAudio.play().catch(() => {});
 }
 
-// ✅ RECOGIDA (cuando aciertas)
 function playDogRetrieve() {
-    dogRetrieveAudio.currentTime = 0;
-    dogRetrieveAudio.play().catch(() => {});
+    if(dogRetrieveAudio) {
+        dogRetrieveAudio.currentTime = 0;
+        dogRetrieveAudio.play().catch(() => {});
+    }
 }
 
 function playFlap() {
     if (!audioCtx) return;
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
+    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
     o.type = 'square';
     o.frequency.setValueAtTime(150, audioCtx.currentTime);
     o.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.08);
@@ -84,17 +82,12 @@ function playFanfare() {
     const now = audioCtx.currentTime;
     const notes = [261.63, 329.63, 392.00, 523.25];
     notes.forEach((freq, i) => {
-        const o = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        o.type = 'square';
-        o.frequency.value = freq;
+        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.type = 'square'; o.frequency.value = freq;
         const start = now + i * 0.15;
-        g.gain.setValueAtTime(0, start);
-        g.gain.linearRampToValueAtTime(0.3, start + 0.02);
-        g.gain.setValueAtTime(0.3, start + 0.12);
-        g.gain.linearRampToValueAtTime(0, start + 0.25);
-        o.connect(g); g.connect(audioCtx.destination);
-        o.start(start); o.stop(start + 0.25);
+        g.gain.setValueAtTime(0, start); g.gain.linearRampToValueAtTime(0.3, start + 0.02);
+        g.gain.setValueAtTime(0.3, start + 0.12); g.gain.linearRampToValueAtTime(0, start + 0.25);
+        o.connect(g); g.connect(audioCtx.destination); o.start(start); o.stop(start + 0.25);
     });
 }
 
@@ -116,17 +109,6 @@ function playBonus() {
     o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.3);
 }
 
-function playSelectSound() {
-    if (!audioCtx) return;
-    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
-    o.type = 'square';
-    o.frequency.setValueAtTime(440, audioCtx.currentTime);
-    g.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime + 0.1);
-}
-
 // --- CANVAS ---
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -144,12 +126,13 @@ fitCanvas();
 window.addEventListener('resize', fitCanvas);
 
 // --- ESTADO DEL JUEGO ---
-let gameState = 'MENU'; // MENU, FLYING, HIT_ANIM, MISS_ANIM, ROUND_END, GAME_OVER
-let menuOption = 0; // 0 = 1 Player, 1 = 2 Players
+let gameState = 'MENU';
+let menuOption = 0;
+let switchTimer = 0; // ⏱️ Timer para pantalla de cambio de jugador
 
 // --- JUGADORES ---
 let numPlayers = 1;
-let currentPlayer = 0; // 0 = Player 1, 1 = Player 2
+let currentPlayer = 0;
 let players = [
     { score: 0, lives: 3, round: 1 },
     { score: 0, lives: 3, round: 1 }
@@ -161,15 +144,8 @@ let ducksHit = 0;
 let shots = 3;
 let particles = [];
 
-// ✅ PERRO CON ANIMACIÓN COMPLETA
 let dog = {
-    x: GW/2,
-    y: GH,           
-    targetY: GH,     
-    state: 'HIDDEN', 
-    action: null,    
-    w: 140, h: 140,
-    timer: 0         
+    x: GW/2, y: GH, targetY: GH, state: 'HIDDEN', action: null, w: 140, h: 140, timer: 0
 };
 
 let currentDuck = null;
@@ -221,34 +197,22 @@ function spawnDuck() {
     
     const edge = Math.floor(Math.random() * 3);
     switch(edge) {
-        case 0:
-            x = Math.random() * (GW - 120) + 60; y = -120;
-            vx = (Math.random() - 0.5) * baseSpeed * 1.2; vy = baseSpeed;
-            break;
-        case 1:
-            x = -120; y = Math.random() * (grassY * 0.6) + 50;
-            vx = baseSpeed; vy = (Math.random() - 0.5) * baseSpeed * 1.2;
-            break;
-        case 2:
-            x = GW + 120; y = Math.random() * (grassY * 0.6) + 50;
-            vx = -baseSpeed; vy = (Math.random() - 0.5) * baseSpeed * 1.2;
-            break;
+        case 0: x = Math.random() * (GW - 120) + 60; y = -120; vx = (Math.random() - 0.5) * baseSpeed * 1.2; vy = baseSpeed; break;
+        case 1: x = -120; y = Math.random() * (grassY * 0.6) + 50; vx = baseSpeed; vy = (Math.random() - 0.5) * baseSpeed * 1.2; break;
+        case 2: x = GW + 120; y = Math.random() * (grassY * 0.6) + 50; vx = -baseSpeed; vy = (Math.random() - 0.5) * baseSpeed * 1.2; break;
     }
 
     currentDuck = {
-        type, x, y, w: 120, h: 120,
-        vx, vy,
+        type, x, y, w: 120, h: 120, vx, vy,
         dir: vx > 0 ? 1 : -1,
         changeTimer: 40 + Math.random() * 60,
         frame: 0, frameTimer: 0,
-        active: true,
-        alpha: 0, fadeIn: 0.06
+        active: true, alpha: 0, fadeIn: 0.06
     };
     shots = 3;
     duckTimer = 0;
 }
 
-// ✅ INICIAR SUBIDA DEL PERRO + EXPLOSIÓN + SONIDO RECOGIDA
 function triggerHit() {
     currentDuck.active = false;
     
@@ -257,7 +221,6 @@ function triggerHit() {
     else if (currentDuck.y < grassY * 0.7) points = 1000;
     getPlayer().score += points;
     
-    // ✅ SPAWN DE PARTÍCULAS
     const numParticles = 30 + Math.floor(Math.random() * 10);
     for (let i = 0; i < numParticles; i++) {
         particles.push(new Particle(currentDuck.x + currentDuck.w/2, currentDuck.y + currentDuck.h/2));
@@ -270,7 +233,7 @@ function triggerHit() {
     dog.timer = 0;
     
     playHit();
-    playDogRetrieve(); // ✅ NUEVO: Suena perro-recoge.ogg
+    playDogRetrieve();
 }
 
 function triggerMiss() {
@@ -283,7 +246,7 @@ function triggerMiss() {
     dog.targetY = grassY - 100;
     dog.timer = 0;
     
-    playDogLaugh(); // ✅ Mantiene perro-risa.ogg
+    playDogLaugh();
 }
 
 function finishDogAnimation() {
@@ -314,10 +277,14 @@ function nextRound() {
     ducksProcessed = 0;
     player.round++;
     
+    // 🔄 LÓGICA DE CAMBIO DE JUGADOR
     if (numPlayers === 2) {
         currentPlayer = 1 - currentPlayer;
+        gameState = 'PLAYER_SWITCH';
+        switchTimer = 120; // 2 segundos a 60fps
+        return;
     }
-    
+
     playRoundStart();
     currentDuck = null;
     gameState = 'FLYING';
@@ -327,10 +294,7 @@ function startGame() {
     initAudio();
     playFanfare();
     
-    players = [
-        { score: 0, lives: 3, round: 1 },
-        { score: 0, lives: 3, round: 1 }
-    ];
+    players = [{ score: 0, lives: 3, round: 1 }, { score: 0, lives: 3, round: 1 }];
     currentPlayer = 0;
     ducksHit = 0;
     ducksProcessed = 0;
@@ -349,41 +313,38 @@ function update() {
     
     if (gameState === 'MENU') return;
     
-    if (gameState === 'FLYING' && !currentDuck) {
-        spawnDuck();
+    // ⏱️ MANEJO DE PANTALLA DE CAMBIO
+    if (gameState === 'PLAYER_SWITCH') {
+        switchTimer--;
+        if (switchTimer <= 0) {
+            playRoundStart();
+            currentDuck = null;
+            gameState = 'FLYING';
+        }
+        return;
     }
+    
+    if (gameState === 'FLYING' && !currentDuck) spawnDuck();
     
     particles = particles.filter(p => p.life > 0);
     particles.forEach(p => p.update());
 
     if (dog.state === 'RISING') {
         dog.y -= 4; 
-        if (dog.y <= dog.targetY) {
-            dog.y = dog.targetY;
-            dog.state = dog.action; 
-            dog.timer = 0;
-        }
+        if (dog.y <= dog.targetY) { dog.y = dog.targetY; dog.state = dog.action; dog.timer = 0; }
     } else if (dog.state === 'LAUGH' || dog.state === 'RETRIEVE') {
         dog.timer++;
-        if (dog.timer > 90) { 
-            dog.state = 'FALLING';
-        }
+        if (dog.timer > 90) dog.state = 'FALLING';
     } else if (dog.state === 'FALLING') {
         dog.y += 4; 
-        if (dog.y >= GH) {
-            finishDogAnimation();
-        }
+        if (dog.y >= GH) finishDogAnimation();
     }
 
     if (gameState === 'FLYING' && currentDuck && currentDuck.active) {
         if (currentDuck.alpha < 1) currentDuck.alpha += currentDuck.fadeIn;
         
         currentDuck.frameTimer++;
-        if (currentDuck.frameTimer > 8) { 
-            currentDuck.frame = 1 - currentDuck.frame; 
-            currentDuck.frameTimer = 0;
-            playFlap();
-        }
+        if (currentDuck.frameTimer > 8) { currentDuck.frame = 1 - currentDuck.frame; currentDuck.frameTimer = 0; playFlap(); }
         
         currentDuck.x += currentDuck.vx;
         currentDuck.y += currentDuck.vy;
@@ -419,9 +380,7 @@ function update() {
             if (getPlayer().lives <= 0) gameState = 'GAME_OVER';
             else nextRound();
         }
-    } else {
-        window.roundTimer = 180;
-    }
+    } else { window.roundTimer = 180; }
 }
 
 // --- DIBUJO ---
@@ -453,55 +412,73 @@ function drawDuck(d) {
     ctx.restore();
 }
 
+// ✅ PERRO - TRATAMIENTO INDEPENDIENTE
 function drawDog() {
     if (dog.state === 'HIDDEN') return;
-    ctx.save();
     let dx = dog.x - 70;
     if (dx < 190) dx = 190; 
     
-    if (perroImg && perroImg.complete && perroImg.naturalWidth > 10) {
-        ctx.drawImage(perroImg, dx, dog.y, 140, 140);
+    if (dog.action === 'RETRIEVE') {
+        ctx.drawImage(perroRecogeImg, dx, dog.y, 140, 140);
     } else {
-        ctx.fillStyle = "#8B4513"; ctx.fillRect(dx, dog.y, 140, 140);
+        ctx.drawImage(perroImg, dx, dog.y, 140, 140);
     }
-    ctx.restore();
 }
 
+// ✅ MENÚ REDISEÑADO
 function drawMenu() {
     ctx.fillStyle = "#5C94FC";
     ctx.fillRect(0, 0, GW, GH);
     
     ctx.fillStyle = "#FF0000";
-    ctx.font = "bold 48px Courier New";
+    ctx.font = "bold 38px Courier New";
     ctx.textAlign = "center";
-    ctx.fillText("DUCK HUNT", GW/2, 150);
+    ctx.fillText("La sala de makinas", GW/2, 160);
     
     ctx.fillStyle = "#FFFFFF";
     ctx.font = "bold 24px Courier New";
-    ctx.fillText("CLASSIC EDITION", GW/2, 190);
+    ctx.fillText("Bird Hunt Edition", GW/2, 200);
     
-    ctx.fillStyle = "#FFFF00";
-    ctx.font = "bold 28px Courier New";
-    ctx.fillText("SELECT GAME MODE", GW/2, 300);
+    const btnW = 280, btnH = 55;
+    const btnX = (GW - btnW) / 2;
+    const btn1Y = 320;
+    const btn2Y = 400;
     
-    ctx.fillStyle = menuOption === 0 ? "#FF0000" : "#FFFFFF";
-    ctx.font = "bold 24px Courier New";
-    ctx.fillText("1 PLAYER", GW/2, 380);
-    
-    ctx.fillStyle = menuOption === 1 ? "#FF0000" : "#FFFFFF";
-    ctx.fillText("2 PLAYERS", GW/2, 430);
-    
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(btnX, btn1Y, btnW, btnH);
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(btnX, btn1Y, btnW, btnH);
     ctx.fillStyle = "#00FF00";
-    ctx.font = "18px Courier New";
-    ctx.fillText("↑ ↓ to select", GW/2, 520);
-    ctx.fillText("PRESS FIRE to start", GW/2, 560);
+    ctx.font = "bold 22px Courier New";
+    ctx.fillText("1 PLAYER", GW/2, btn1Y + 36);
+    
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(btnX, btn2Y, btnW, btnH);
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.strokeRect(btnX, btn2Y, btnW, btnH);
+    ctx.fillStyle = "#00FF00";
+    ctx.fillText("2 PLAYERS", GW/2, btn2Y + 36);
     
     ctx.textAlign = "left";
 }
 
 function draw() {
-    if (gameState === 'MENU') {
-        drawMenu();
+    if (gameState === 'MENU') { drawMenu(); return; }
+    
+    // 🖥️ PANTALLA DE CAMBIO DE JUGADOR
+    if (gameState === 'PLAYER_SWITCH') {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, GW, GH);
+        
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "bold 48px Courier New";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`PLAYER ${currentPlayer + 1}`, GW/2, GH/2);
+        
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
         return;
     }
     
@@ -518,6 +495,7 @@ function draw() {
     drawTree();
     if (currentDuck) drawDuck(currentDuck);
     
+    // HUD
     const hudH = 60, hudY = GH - hudH;
     ctx.fillStyle = "#603000"; ctx.fillRect(0, hudY, GW, hudH);
     
@@ -527,30 +505,25 @@ function draw() {
         ctx.fillText(`P1: ${players[0].score}`, 10, hudY+20);
         ctx.fillStyle = currentPlayer === 1 ? "#FFFF00" : "#FFFFFF";
         ctx.fillText(`P2: ${players[1].score}`, 10, hudY+45);
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "bold 16px Courier New";
+        ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 16px Courier New";
         ctx.fillText(`LIVES: ${getPlayer().lives}`, 140, hudY+25);
         ctx.fillText(`ROUND: ${getPlayer().round}`, 140, hudY+45);
     } else {
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "bold 18px Courier New";
+        ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 18px Courier New";
         ctx.fillText(`LIVES: ${getPlayer().lives}`, 10, hudY+25);
         ctx.fillText(`ROUND: ${getPlayer().round}`, 10, hudY+45);
         ctx.fillText(`SCORE: ${getPlayer().score}`, 140, hudY+35);
     }
 
-    ctx.fillStyle = "#00FF00";
-    ctx.font = "bold 18px Courier New";
+    ctx.fillStyle = "#00FF00"; ctx.font = "bold 18px Courier New";
     ctx.fillText(`SHOTS: ${shots}`, GW-120, hudY+35);
     
     if (numPlayers === 2) {
-        ctx.fillStyle = "#FF0000";
-        ctx.font = "bold 20px Courier New";
-        ctx.textAlign = "center";
-        ctx.fillText(`PLAYER ${currentPlayer + 1}'S TURN`, GW/2, 40);
-        ctx.textAlign = "left";
+        ctx.fillStyle = "#FF0000"; ctx.font = "bold 20px Courier New"; ctx.textAlign = "center";
+        ctx.fillText(`PLAYER ${currentPlayer + 1}'S TURN`, GW/2, 40); ctx.textAlign = "left";
     }
     
+    // ✅ CARTEL DE FIN DE RONDA LIMPIO
     if (gameState === 'ROUND_END') {
         ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
         const rw = 340, rh = 90;
@@ -560,29 +533,25 @@ function draw() {
         else ctx.rect(rx, ry, rw, rh);
         ctx.fill();
         
-        ctx.fillStyle = "#FFD700"; ctx.font = "bold 26px Courier New";
-        ctx.textAlign = "center";
+        ctx.fillStyle = "#FFD700"; ctx.font = "bold 26px Courier New"; ctx.textAlign = "center";
         ctx.fillText(`ROUND ${getPlayer().round} COMPLETE`, GW/2, GH/2 + 5);
-        ctx.fillStyle = "#FFFFFF"; ctx.font = "20px Courier New";
-        if (numPlayers === 2) {
-            ctx.fillText(`PLAYER ${1 - currentPlayer + 1}'S TURN`, GW/2, GH/2 + 35);
-        } else {
+        
+        // ✅ Solo muestra "NEXT ROUND" en modo 1 jugador. En 2 jugadores, la transición negra se encarga.
+        if (numPlayers === 1) {
+            ctx.fillStyle = "#FFFFFF"; ctx.font = "20px Courier New";
             ctx.fillText(`NEXT: ROUND ${getPlayer().round + 1}`, GW/2, GH/2 + 35);
         }
         ctx.textAlign = "left";
     } else if (gameState === 'GAME_OVER') {
         ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0, 0, GW, GH);
-        ctx.fillStyle = "#FF0000"; ctx.font = "bold 40px Courier New";
-        ctx.textAlign = "center";
+        ctx.fillStyle = "#FF0000"; ctx.font = "bold 40px Courier New"; ctx.textAlign = "center";
         ctx.fillText("GAME OVER", GW/2, GH/2 - 40);
         
         if (numPlayers === 2) {
             ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 24px Courier New";
             ctx.fillText(`PLAYER 1: ${players[0].score}`, GW/2, GH/2 + 10);
             ctx.fillText(`PLAYER 2: ${players[1].score}`, GW/2, GH/2 + 40);
-            
-            const winner = players[0].score > players[1].score ? "PLAYER 1 WINS!" : 
-                          players[1].score > players[0].score ? "PLAYER 2 WINS!" : "DRAW!";
+            const winner = players[0].score > players[1].score ? "PLAYER 1 WINS!" : players[1].score > players[0].score ? "PLAYER 2 WINS!" : "DRAW!";
             ctx.fillStyle = "#FFD700"; ctx.font = "bold 28px Courier New";
             ctx.fillText(winner, GW/2, GH/2 + 90);
         } else {
@@ -593,30 +562,32 @@ function draw() {
     }
 }
 
-// --- INPUT ---
-function handleInput(e) {
-    e.preventDefault();
-    
-    if (gameState === 'MENU') {
-        if (e.key === 'ArrowUp') {
-            menuOption = 0;
-            playSelectSound();
-        } else if (e.key === 'ArrowDown') {
-            menuOption = 1;
-            playSelectSound();
-        } else if (e.key === ' ' || e.key === 'Enter') {
-            numPlayers = menuOption + 1;
-            startGame();
-        }
-    }
-}
-
+// --- INPUT (MENÚ CLICABLE + DISPARO) ---
 function handleShoot(e) {
     e.preventDefault();
     
     if (gameState === 'MENU') {
-        numPlayers = menuOption + 1;
-        startGame();
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = GW / rect.width;
+        const scaleY = GH / rect.height;
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+        const gx = (cx - rect.left) * scaleX;
+        const gy = (cy - rect.top) * scaleY;
+        
+        const btnW = 280, btnH = 55;
+        const btnX = (GW - btnW) / 2;
+        
+        if (gx >= btnX && gx <= btnX + btnW && gy >= 320 && gy <= 375) {
+            numPlayers = 1;
+            startGame();
+            return;
+        }
+        if (gx >= btnX && gx <= btnX + btnW && gy >= 400 && gy <= 455) {
+            numPlayers = 2;
+            startGame();
+            return;
+        }
         return;
     }
     
@@ -642,7 +613,6 @@ function handleShoot(e) {
 
 canvas.addEventListener('mousedown', handleShoot); 
 canvas.addEventListener('touchstart', handleShoot, {passive:false});
-window.addEventListener('keydown', handleInput);
 
 // --- INIT ---
 gameState = 'MENU';
