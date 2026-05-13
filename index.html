@@ -15,6 +15,7 @@
 <script>
 // --- IMÁGENES ---
 const portadaImg = new Image(); portadaImg.src = 'portada.png';
+const menuImg = new Image(); menuImg.src = 'menu_fondo.png';
 const lajefaImg = new Image(); lajefaImg.src = 'lajefa-aleteo.png';
 const eljefeImg = new Image(); eljefeImg.src = 'eljefe-aleteo.png';
 const perroImg = new Image(); perroImg.src = 'perro.png';
@@ -129,16 +130,15 @@ window.addEventListener('resize', fitCanvas);
 // --- ESTADO DEL JUEGO ---
 let gameState = 'LOADING';
 let loadingTimer = 0;
-const LOAD_DURATION = 360; // 6 segundos
-let menuOption = 0;
+const LOAD_DURATION = 360;
 let switchTimer = 0;
 
 // --- JUGADORES ---
 let numPlayers = 1;
 let currentPlayer = 0;
 let players = [
-    { score: 0, lives: 3, round: 1 },
-    { score: 0, lives: 3, round: 1 }
+    { score: 0, lives: 3, round: 1, eliminated: false },
+    { score: 0, lives: 3, round: 1, eliminated: false }
 ];
 
 // --- GAMEPLAY ---
@@ -241,7 +241,13 @@ function triggerHit() {
 
 function triggerMiss() {
     if (currentDuck && currentDuck.active) currentDuck.active = false;
+    
+    // ✅ GESTIÓN DE VIDAS SIN NEGATIVOS
     getPlayer().lives--;
+    if (getPlayer().lives <= 0) {
+        getPlayer().lives = 0;
+        getPlayer().eliminated = true;
+    }
     
     dog.state = 'RISING';
     dog.action = 'LAUGH';
@@ -257,16 +263,40 @@ function finishDogAnimation() {
     dog.y = GH;
     currentDuck = null;
     
+    // ✅ VERIFICAR ELIMINACIÓN INMEDIATA
+    if (players[currentPlayer].eliminated) {
+        if (numPlayers === 1) {
+            gameState = 'GAME_OVER';
+            return;
+        } else {
+            // Modo 2J: Cambiar al otro jugador
+            currentPlayer = 1 - currentPlayer;
+            if (players[currentPlayer].eliminated) {
+                gameState = 'GAME_OVER'; // Ambos eliminados
+                return;
+            }
+            // Iniciar ronda del jugador superviviente
+            ducksHit = 0;
+            ducksProcessed = 0;
+            players[currentPlayer].round++;
+            gameState = 'PLAYER_SWITCH';
+            switchTimer = 90;
+            return;
+        }
+    }
+    
+    // Flujo normal si no está eliminado
     if (duckTimer > 360) {
         ducksProcessed++;
-        if (getPlayer().lives <= 0) gameState = 'GAME_OVER';
-        else if (ducksProcessed >= 10) gameState = 'ROUND_END';
-        else gameState = 'FLYING';
     } else {
         ducksHit++;
         ducksProcessed++;
-        if (ducksProcessed >= 10) gameState = 'ROUND_END';
-        else gameState = 'FLYING';
+    }
+    
+    if (ducksProcessed >= 10) {
+        nextRound();
+    } else {
+        gameState = 'FLYING';
     }
 }
 
@@ -282,21 +312,33 @@ function nextRound() {
     
     if (numPlayers === 2) {
         currentPlayer = 1 - currentPlayer;
+        
+        // Si el siguiente jugador ya está eliminado, que siga el actual
+        if (players[currentPlayer].eliminated) {
+            currentPlayer = 1 - currentPlayer; // Volver al jugador activo
+            // Si por algún caso ambos están eliminados (no debería pasar aquí)
+            if (players[currentPlayer].eliminated) {
+                gameState = 'GAME_OVER';
+                return;
+            }
+        }
+        
         gameState = 'PLAYER_SWITCH';
-        switchTimer = 120;
-        return;
+        switchTimer = 90;
+    } else {
+        playRoundStart();
+        gameState = 'FLYING';
     }
-
-    playRoundStart();
-    currentDuck = null;
-    gameState = 'FLYING';
 }
 
 function startGame() {
     initAudio();
     playFanfare();
     
-    players = [{ score: 0, lives: 3, round: 1 }, { score: 0, lives: 3, round: 1 }];
+    players = [
+        { score: 0, lives: 3, round: 1, eliminated: false },
+        { score: 0, lives: 3, round: 1, eliminated: false }
+    ];
     currentPlayer = 0;
     ducksHit = 0;
     ducksProcessed = 0;
@@ -386,7 +428,7 @@ function update() {
         window.roundTimer--;
         if (window.roundTimer <= 0) {
             window.roundTimer = 0;
-            if (getPlayer().lives <= 0) gameState = 'GAME_OVER';
+            if (players.every(p => p.eliminated)) gameState = 'GAME_OVER';
             else nextRound();
         }
     } else { window.roundTimer = 180; }
@@ -421,7 +463,6 @@ function drawDuck(d) {
     ctx.restore();
 }
 
-// ✅ PERRO
 function drawDog() {
     if (dog.state === 'HIDDEN') return;
     let dx = dog.x - 70;
@@ -434,47 +475,21 @@ function drawDog() {
     }
 }
 
-// ✅ MENÚ
 function drawMenu() {
-    ctx.fillStyle = "#5C94FC";
-    ctx.fillRect(0, 0, GW, GH);
-    
-    ctx.fillStyle = "#FF0000";
-    ctx.font = "bold 38px Courier New";
-    ctx.textAlign = "center";
-    ctx.fillText("La sala de makinas", GW/2, 160);
-    
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = "bold 24px Courier New";
-    ctx.fillText("Bird Hunt Edition", GW/2, 200);
-    
-    const btnW = 280, btnH = 55;
-    const btnX = (GW - btnW) / 2;
-    const btn1Y = 320;
-    const btn2Y = 400;
-    
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(btnX, btn1Y, btnW, btnH);
-    ctx.strokeStyle = "#FFFFFF";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(btnX, btn1Y, btnW, btnH);
-    ctx.fillStyle = "#00FF00";
-    ctx.font = "bold 22px Courier New";
-    ctx.fillText("1 PLAYER", GW/2, btn1Y + 36);
-    
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(btnX, btn2Y, btnW, btnH);
-    ctx.strokeStyle = "#FFFFFF";
-    ctx.strokeRect(btnX, btn2Y, btnW, btnH);
-    ctx.fillStyle = "#00FF00";
-    ctx.fillText("2 PLAYERS", GW/2, btn2Y + 36);
-    
-    ctx.textAlign = "left";
+    if (menuImg.complete && menuImg.naturalWidth > 0) {
+        ctx.drawImage(menuImg, 0, 0, GW, GH);
+    } else {
+        ctx.fillStyle = "#5C94FC";
+        ctx.fillRect(0, 0, GW, GH);
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText("Cargando menú...", GW/2, GH/2);
+        ctx.textAlign = "left";
+    }
 }
 
-// ✅ PANTALLA DE CARGA MEJORADA
 function drawLoading() {
-    // 1. Imagen de fondo
     if (portadaImg.complete) {
         ctx.drawImage(portadaImg, 0, 0, GW, GH);
     } else {
@@ -483,15 +498,12 @@ function drawLoading() {
     }
 
     const progress = loadingTimer / LOAD_DURATION;
-    
-    // 2. Configuración de la barra (Más estrecha y fina)
     const barW = 220;
     const barH = 6;
     const barX = (GW - barW) / 2;
     const barY = GH - 100; 
     const radius = 3;
 
-    // Helper para rectángulos redondeados
     function pathRoundRect(x, y, w, h, r) {
         ctx.beginPath();
         ctx.moveTo(x + r, y);
@@ -506,24 +518,20 @@ function drawLoading() {
         ctx.closePath();
     }
 
-    // 3. Fondo de la barra
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     pathRoundRect(barX, barY, barW, barH, radius);
     ctx.fill();
 
-    // 4. Progreso con gradiente llamativo
     if (progress > 0) {
         const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
         gradient.addColorStop(0, "#00FF00");
         gradient.addColorStop(1, "#FFFF00");
         ctx.fillStyle = gradient;
-        
         const progressW = Math.max(radius * 2, barW * progress);
         pathRoundRect(barX, barY, progressW, barH, radius);
         ctx.fill();
     }
 
-    // 5. Texto debajo
     ctx.fillStyle = "#FFFFFF";
     ctx.font = "bold 14px Courier New";
     ctx.textAlign = "center";
@@ -537,7 +545,10 @@ function draw() {
         return;
     }
 
-    if (gameState === 'MENU') { drawMenu(); return; }
+    if (gameState === 'MENU') { 
+        drawMenu(); 
+        return; 
+    }
     
     if (gameState === 'PLAYER_SWITCH') {
         ctx.fillStyle = "#000000";
@@ -567,7 +578,6 @@ function draw() {
     drawTree();
     if (currentDuck) drawDuck(currentDuck);
     
-    // HUD
     const hudH = 60, hudY = GH - hudH;
     ctx.fillStyle = "#603000"; ctx.fillRect(0, hudY, GW, hudH);
     
@@ -577,14 +587,17 @@ function draw() {
         ctx.fillText(`P1: ${players[0].score}`, 10, hudY+20);
         ctx.fillStyle = currentPlayer === 1 ? "#FFFF00" : "#FFFFFF";
         ctx.fillText(`P2: ${players[1].score}`, 10, hudY+45);
-        ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 16px Courier New";
-        ctx.fillText(`LIVES: ${getPlayer().lives}`, 140, hudY+25);
-        ctx.fillText(`ROUND: ${getPlayer().round}`, 140, hudY+45);
+        
+        // Mostrar vidas o ELIMINADO
+        ctx.fillStyle = players[0].eliminated ? "#FF4444" : "#FFFFFF";
+        ctx.fillText(players[0].eliminated ? "P1: ELIMINADO" : `LIVES: ${players[0].lives}`, 140, hudY+25);
+        ctx.fillStyle = players[1].eliminated ? "#FF4444" : "#FFFFFF";
+        ctx.fillText(players[1].eliminated ? "P2: ELIMINADO" : `LIVES: ${players[1].lives}`, 140, hudY+45);
     } else {
         ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 18px Courier New";
-        ctx.fillText(`LIVES: ${getPlayer().lives}`, 10, hudY+25);
-        ctx.fillText(`ROUND: ${getPlayer().round}`, 10, hudY+45);
-        ctx.fillText(`SCORE: ${getPlayer().score}`, 140, hudY+35);
+        ctx.fillText(`LIVES: ${players[0].lives}`, 10, hudY+25);
+        ctx.fillText(`ROUND: ${players[0].round}`, 10, hudY+45);
+        ctx.fillText(`SCORE: ${players[0].score}`, 140, hudY+35);
     }
 
     ctx.fillStyle = "#00FF00"; ctx.font = "bold 18px Courier New";
@@ -605,12 +618,7 @@ function draw() {
         ctx.fill();
         
         ctx.fillStyle = "#FFD700"; ctx.font = "bold 26px Courier New"; ctx.textAlign = "center";
-        ctx.fillText(`ROUND ${getPlayer().round} COMPLETE`, GW/2, GH/2 + 5);
-        
-        if (numPlayers === 1) {
-            ctx.fillStyle = "#FFFFFF"; ctx.font = "20px Courier New";
-            ctx.fillText(`NEXT: ROUND ${getPlayer().round + 1}`, GW/2, GH/2 + 35);
-        }
+        ctx.fillText(`ROUND ${players[currentPlayer].round} COMPLETE`, GW/2, GH/2 + 5);
         ctx.textAlign = "left";
     } else if (gameState === 'GAME_OVER') {
         ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0, 0, GW, GH);
@@ -628,6 +636,11 @@ function draw() {
             ctx.fillStyle = "#FFF"; ctx.font = "20px Courier New";
             ctx.fillText(`FINAL SCORE: ${players[0].score}`, GW/2, GH/2 + 20);
         }
+        
+        // Texto MAIN MENU
+        ctx.fillStyle = "#00FF00";
+        ctx.font = "bold 24px Courier New";
+        ctx.fillText("MAIN MENU", GW/2, GH/2 + 140);
         ctx.textAlign = "left";
     }
 }
@@ -647,20 +660,40 @@ function handleShoot(e) {
         const gx = (cx - rect.left) * scaleX;
         const gy = (cy - rect.top) * scaleY;
         
-        const btnW = 280, btnH = 55;
-        const btnX = (GW - btnW) / 2;
-        
-        if (gx >= btnX && gx <= btnX + btnW && gy >= 320 && gy <= 375) {
+        if (gx >= 120 && gx <= 360 && gy >= 300 && gy <= 360) {
             numPlayers = 1;
             startGame();
             return;
         }
-        if (gx >= btnX && gx <= btnX + btnW && gy >= 400 && gy <= 455) {
+        if (gx >= 120 && gx <= 360 && gy >= 370 && gy <= 430) {
             numPlayers = 2;
             startGame();
             return;
         }
         return;
+    }
+    
+    if (gameState === 'GAME_OVER') {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = GW / rect.width;
+        const scaleY = GH / rect.height;
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+        const gx = (cx - rect.left) * scaleX;
+        const gy = (cy - rect.top) * scaleY;
+        
+        if (gx >= 140 && gx <= 340 && gy >= GH/2 + 115 && gy <= GH/2 + 165) {
+            gameState = 'MENU';
+            players = [{ score: 0, lives: 3, round: 1, eliminated: false }, { score: 0, lives: 3, round: 1, eliminated: false }];
+            currentPlayer = 0;
+            ducksHit = 0;
+            ducksProcessed = 0;
+            currentDuck = null;
+            particles = [];
+            dog.state = 'HIDDEN';
+            dog.y = GH;
+            return;
+        }
     }
     
     initAudio();
@@ -686,7 +719,6 @@ function handleShoot(e) {
 canvas.addEventListener('mousedown', handleShoot); 
 canvas.addEventListener('touchstart', handleShoot, {passive:false});
 
-// --- INIT ---
 gameState = 'LOADING';
 (function loop() { update(); draw(); requestAnimationFrame(loop); })();
 </script>
