@@ -27,6 +27,8 @@ const dogLaughAudio = new Audio('perro-risa.ogg');
 dogLaughAudio.preload = 'auto';
 const dogRetrieveAudio = new Audio('perro-recoge.ogg');
 dogRetrieveAudio.preload = 'auto';
+const guauAudio = new Audio('guau.ogg');
+guauAudio.preload = 'auto';
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let audioCtx;
@@ -242,7 +244,6 @@ function triggerHit() {
 function triggerMiss() {
     if (currentDuck && currentDuck.active) currentDuck.active = false;
     
-    // ✅ GESTIÓN DE VIDAS SIN NEGATIVOS
     getPlayer().lives--;
     if (getPlayer().lives <= 0) {
         getPlayer().lives = 0;
@@ -269,13 +270,11 @@ function finishDogAnimation() {
             gameState = 'GAME_OVER';
             return;
         } else {
-            // Modo 2J: Cambiar al otro jugador
             currentPlayer = 1 - currentPlayer;
             if (players[currentPlayer].eliminated) {
-                gameState = 'GAME_OVER'; // Ambos eliminados
+                gameState = 'GAME_OVER';
                 return;
             }
-            // Iniciar ronda del jugador superviviente
             ducksHit = 0;
             ducksProcessed = 0;
             players[currentPlayer].round++;
@@ -285,7 +284,6 @@ function finishDogAnimation() {
         }
     }
     
-    // Flujo normal si no está eliminado
     if (duckTimer > 360) {
         ducksProcessed++;
     } else {
@@ -313,10 +311,8 @@ function nextRound() {
     if (numPlayers === 2) {
         currentPlayer = 1 - currentPlayer;
         
-        // Si el siguiente jugador ya está eliminado, que siga el actual
         if (players[currentPlayer].eliminated) {
-            currentPlayer = 1 - currentPlayer; // Volver al jugador activo
-            // Si por algún caso ambos están eliminados (no debería pasar aquí)
+            currentPlayer = 1 - currentPlayer; 
             if (players[currentPlayer].eliminated) {
                 gameState = 'GAME_OVER';
                 return;
@@ -588,7 +584,6 @@ function draw() {
         ctx.fillStyle = currentPlayer === 1 ? "#FFFF00" : "#FFFFFF";
         ctx.fillText(`P2: ${players[1].score}`, 10, hudY+45);
         
-        // Mostrar vidas o ELIMINADO
         ctx.fillStyle = players[0].eliminated ? "#FF4444" : "#FFFFFF";
         ctx.fillText(players[0].eliminated ? "P1: ELIMINADO" : `LIVES: ${players[0].lives}`, 140, hudY+25);
         ctx.fillStyle = players[1].eliminated ? "#FF4444" : "#FFFFFF";
@@ -637,7 +632,6 @@ function draw() {
             ctx.fillText(`FINAL SCORE: ${players[0].score}`, GW/2, GH/2 + 20);
         }
         
-        // Texto MAIN MENU
         ctx.fillStyle = "#00FF00";
         ctx.font = "bold 24px Courier New";
         ctx.fillText("MAIN MENU", GW/2, GH/2 + 140);
@@ -697,6 +691,42 @@ function handleShoot(e) {
     }
     
     initAudio();
+    
+    // ✅ EASTER EGG: DISPARAR AL PERRO
+    if (dog.state !== 'HIDDEN') {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = GW / rect.width, scaleY = GH / rect.height;
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+        const gx = (cx - rect.left) * scaleX, gy = (cy - rect.top) * scaleY;
+        
+        // Hitbox del perro (un poco generoso para facilitar)
+        const dogHitboxX = dog.x - 80; 
+        const dogHitboxY = dog.y - 20;
+        const dogHitboxW = 160;
+        const dogHitboxH = 160;
+        
+        if (gx >= dogHitboxX && gx <= dogHitboxX + dogHitboxW && 
+            gy >= dogHitboxY && gy <= dogHitboxY + dogHitboxH) {
+            
+            // 1. Sonido
+            guauAudio.currentTime = 0;
+            guauAudio.play().catch(() => {});
+            
+            // 2. Explosión
+            for (let i = 0; i < 25; i++) {
+                particles.push(new Particle(dog.x, dog.y + 70));
+            }
+            
+            // 3. Forzar fin de turno del perro para que el juego continúe
+            finishDogAnimation();
+            
+            shots--; // Gastar tiro
+            return; 
+        }
+    }
+
+    // Lógica normal de disparo al pato
     if (gameState !== 'FLYING' || !currentDuck || !currentDuck.active) return;
     if (shots <= 0) return;
     
