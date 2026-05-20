@@ -18,6 +18,7 @@ const portadaImg = new Image(); portadaImg.src = 'portada.png';
 const menuImg = new Image(); menuImg.src = 'menu_fondo.png';
 const lajefaImg = new Image(); lajefaImg.src = 'lajefa-aleteo.png';
 const eljefeImg = new Image(); eljefeImg.src = 'eljefe-aleteo.png';
+const abelImg = new Image(); abelImg.src = 'abel-aleteo.png';
 const perroImg = new Image(); perroImg.src = 'perro.png';
 const perroRecogeImg = new Image(); perroRecogeImg.src = 'perro-recoge.png';
 const treeImg = new Image(); treeImg.src = 'arbol.png';
@@ -29,6 +30,8 @@ const dogRetrieveAudio = new Audio('perro-recoge.ogg');
 dogRetrieveAudio.preload = 'auto';
 const guauAudio = new Audio('guau.ogg');
 guauAudio.preload = 'auto';
+const abelAudio = new Audio('abelmunecos.ogg');
+abelAudio.preload = 'auto';
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let audioCtx;
@@ -148,6 +151,7 @@ let ducksProcessed = 0;
 let ducksHit = 0;
 let shots = 3;
 let particles = [];
+let abelSpawnedInRound = false;
 
 let dog = {
     x: GW/2, y: GH, targetY: GH, state: 'HIDDEN', action: null, w: 140, h: 140, timer: 0
@@ -160,6 +164,21 @@ const grassH = GH * 0.2, grassY = GH - grassH;
 const tree = { x: 10, w: 177, h: 180 };
 const clouds = [
     { x: 50, y: 80, w: 70, s: 0.3 }, { x: 200, y: 150, w: 90, s: 0.4 }, { x: 350, y: 100, w: 80, s: 0.35 }
+];
+
+// ============================================
+// ✅ ZONAS SECRETAS DEL ÁRBOL
+// ============================================
+const SECRET_SPOTS = [
+    {
+        name: 'abel',
+        x: 100, 
+        y: 520,
+        w: 60,
+        h: 60,
+        reward: 2,
+        img: abelImg
+    }
 ];
 
 // ============================================
@@ -264,7 +283,6 @@ function finishDogAnimation() {
     dog.y = GH;
     currentDuck = null;
     
-    // ✅ VERIFICAR ELIMINACIÓN INMEDIATA
     if (players[currentPlayer].eliminated) {
         if (numPlayers === 1) {
             gameState = 'GAME_OVER';
@@ -278,6 +296,7 @@ function finishDogAnimation() {
             ducksHit = 0;
             ducksProcessed = 0;
             players[currentPlayer].round++;
+            abelSpawnedInRound = false;
             gameState = 'PLAYER_SWITCH';
             switchTimer = 90;
             return;
@@ -307,6 +326,7 @@ function nextRound() {
     ducksHit = 0;
     ducksProcessed = 0;
     player.round++;
+    abelSpawnedInRound = false;
     
     if (numPlayers === 2) {
         currentPlayer = 1 - currentPlayer;
@@ -338,6 +358,7 @@ function startGame() {
     currentPlayer = 0;
     ducksHit = 0;
     ducksProcessed = 0;
+    abelSpawnedInRound = false;
     currentDuck = null;
     particles = [];
     
@@ -451,11 +472,18 @@ function drawDuck(d) {
     ctx.globalAlpha = d.alpha || 1;
     ctx.translate(d.x + d.w/2, d.y + d.h/2);
     ctx.scale(d.dir, 1);
-    const img = d.type === 'eljefe' ? eljefeImg : lajefaImg;
+    let img;
+    if (d.type === 'eljefe') img = eljefeImg;
+    else if (d.type === 'abel') img = abelImg;
+    else img = lajefaImg;
+    
     if (img && img.complete && img.naturalWidth > 10) {
         const fw = img.width/2, fh = img.height;
         ctx.drawImage(img, d.frame * fw, 0, fw, fh, -d.w/2, -d.h/2, d.w, d.h);
-    } else { ctx.fillStyle = d.type === 'eljefe' ? "#FF3333" : "#FF00FF"; ctx.fillRect(-d.w/2, -d.h/2, d.w, d.h); }
+    } else { 
+        ctx.fillStyle = d.type === 'eljefe' ? "#FF3333" : d.type === 'abel' ? "#FFA500" : "#FF00FF"; 
+        ctx.fillRect(-d.w/2, -d.h/2, d.w, d.h); 
+    }
     ctx.restore();
 }
 
@@ -573,6 +601,8 @@ function draw() {
     
     drawTree();
     if (currentDuck) drawDuck(currentDuck);
+    
+    // ✅ CUADRO ROJO ELIMINADO
     
     const hudH = 60, hudY = GH - hudH;
     ctx.fillStyle = "#603000"; ctx.fillRect(0, hudY, GW, hudH);
@@ -700,7 +730,6 @@ function handleShoot(e) {
         const cy = e.touches ? e.touches[0].clientY : e.clientY;
         const gx = (cx - rect.left) * scaleX, gy = (cy - rect.top) * scaleY;
         
-        // Hitbox del perro (un poco generoso para facilitar)
         const dogHitboxX = dog.x - 80; 
         const dogHitboxY = dog.y - 20;
         const dogHitboxW = 160;
@@ -709,20 +738,57 @@ function handleShoot(e) {
         if (gx >= dogHitboxX && gx <= dogHitboxX + dogHitboxW && 
             gy >= dogHitboxY && gy <= dogHitboxY + dogHitboxH) {
             
-            // 1. Sonido
             guauAudio.currentTime = 0;
             guauAudio.play().catch(() => {});
             
-            // 2. Explosión
             for (let i = 0; i < 25; i++) {
                 particles.push(new Particle(dog.x, dog.y + 70));
             }
             
-            // 3. Forzar fin de turno del perro para que el juego continúe
             finishDogAnimation();
             
-            shots--; // Gastar tiro
+            shots--;
             return; 
+        }
+    }
+
+    // ✅ EASTER EGG: DISPARAR AL ÁRBOL (ZONAS SECRETAS)
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = GW / rect.width, scaleY = GH / rect.height;
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    const gx = (cx - rect.left) * scaleX, gy = (cy - rect.top) * scaleY;
+    
+    for (let spot of SECRET_SPOTS) {
+        if (gx >= spot.x && gx <= spot.x + spot.w && 
+            gy >= spot.y && gy <= spot.y + spot.h) {
+            
+            if (!abelSpawnedInRound) {
+                abelSpawnedInRound = true;
+                abelAudio.currentTime = 0;
+                abelAudio.play().catch(() => {});
+                
+                shots += spot.reward;
+                
+                const baseSpeed = (2.5 + getPlayer().round * 0.5) * getSpeedMult();
+                currentDuck = {
+                    type: 'abel', 
+                    x: spot.x + spot.w/2 - 60, 
+                    y: spot.y + spot.h/2 - 60, 
+                    w: 120, h: 120, 
+                    vx: (Math.random() - 0.5) * baseSpeed * 2, 
+                    vy: -baseSpeed, 
+                    dir: 1,
+                    changeTimer: 40 + Math.random() * 60,
+                    frame: 0, frameTimer: 0,
+                    active: true, alpha: 1, fadeIn: 0
+                };
+                
+                for (let i = 0; i < 15; i++) {
+                    particles.push(new Particle(spot.x + spot.w/2, spot.y + spot.h/2));
+                }
+            }
+            return;
         }
     }
 
@@ -731,12 +797,6 @@ function handleShoot(e) {
     if (shots <= 0) return;
     
     playShoot(); shots--;
-    
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = GW / rect.width, scaleY = GH / rect.height;
-    const cx = e.touches ? e.touches[0].clientX : e.clientX;
-    const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    const gx = (cx - rect.left) * scaleX, gy = (cy - rect.top) * scaleY;
     
     if (gx >= currentDuck.x-15 && gx <= currentDuck.x+currentDuck.w+15 && 
         gy >= currentDuck.y-15 && gy <= currentDuck.y+currentDuck.h+15) {
